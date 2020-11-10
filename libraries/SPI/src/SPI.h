@@ -15,6 +15,10 @@
 #define _SPI_H_INCLUDED
 
 #include <Arduino.h>
+#include "Arduino_FreeRTOS.h"
+#include "semphr.h"
+
+extern SemaphoreHandle_t xSerialSemaphoreSpi;
 
 // SPI_HAS_TRANSACTION means SPI has beginTransaction(), endTransaction(),
 // usingInterrupt(), and SPISetting(clock, bitOrder, dataMode)
@@ -192,16 +196,21 @@ public:
       }
     }
 
-    #ifdef SPI_TRANSACTION_MISMATCH_LED
-    if (inTransactionFlag) {
-      pinMode(SPI_TRANSACTION_MISMATCH_LED, OUTPUT);
-      digitalWrite(SPI_TRANSACTION_MISMATCH_LED, HIGH);
-    }
-    inTransactionFlag = 1;
-    #endif
+	if( xSemaphoreTake( xSerialSemaphoreSpi, portMAX_DELAY ) == pdTRUE ) 
+	{
+		#ifdef SPI_TRANSACTION_MISMATCH_LED
+		if (inTransactionFlag) {
+			pinMode(SPI_TRANSACTION_MISMATCH_LED, OUTPUT);
+			digitalWrite(SPI_TRANSACTION_MISMATCH_LED, HIGH);
+		}
+		inTransactionFlag = 1;
+		#endif
 
-    SPCR = settings.spcr;
-    SPSR = settings.spsr;
+		SPCR = settings.spcr;
+		SPSR = settings.spsr;
+	}
+	else
+		asm ("BREAK");
   }
 
   // Write to the SPI bus (MOSI pin) and also receive (MISO pin)
@@ -257,31 +266,38 @@ public:
   }
   // After performing a group of transfers and releasing the chip select
   // signal, this function allows others to access the SPI bus
-  inline static void endTransaction(void) {
-    #ifdef SPI_TRANSACTION_MISMATCH_LED
-    if (!inTransactionFlag) {
-      pinMode(SPI_TRANSACTION_MISMATCH_LED, OUTPUT);
-      digitalWrite(SPI_TRANSACTION_MISMATCH_LED, HIGH);
-    }
-    inTransactionFlag = 0;
-    #endif
+  inline static void endTransaction(void) 
+  {
+#ifdef SPI_TRANSACTION_MISMATCH_LED
+	if (!inTransactionFlag) {
+		pinMode(SPI_TRANSACTION_MISMATCH_LED, OUTPUT);
+		digitalWrite(SPI_TRANSACTION_MISMATCH_LED, HIGH);
+	}
+	inTransactionFlag = 0;
+#endif
 
-    if (interruptMode > 0) {
-      #ifdef SPI_AVR_EIMSK
-      uint8_t sreg = SREG;
-      #endif
-      noInterrupts();
-      #ifdef SPI_AVR_EIMSK
-      if (interruptMode == 1) {
-        SPI_AVR_EIMSK = interruptSave;
-        SREG = sreg;
-      } else
-      #endif
-      {
-        SREG = interruptSave;
-      }
-    }
-  }
+	if (interruptMode > 0) {
+#ifdef SPI_AVR_EIMSK
+		uint8_t sreg = SREG;
+#endif
+		noInterrupts();
+#ifdef SPI_AVR_EIMSK
+		if (interruptMode == 1) {
+			SPI_AVR_EIMSK = interruptSave;
+			SREG = sreg;
+		} else
+#endif
+		{
+			SREG = interruptSave;
+		}
+	}
+	/* We have finished accessing the shared resource.  
+	   Release the semaphore. */
+	if(xSerialSemaphoreSpi != NULL)
+		xSemaphoreGive( xSerialSemaphoreSpi );
+	else
+		asm ("BREAK");  	
+}
 
   // Disable the SPI bus
   static void end();

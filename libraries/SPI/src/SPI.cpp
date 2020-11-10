@@ -23,6 +23,17 @@ uint8_t SPIClass::interruptSave = 0;
 uint8_t SPIClass::inTransactionFlag = 0;
 #endif
 
+/* StaticSemaphore_t is a publicly accessible structure that has the same size
+and alignment requirements as the real semaphore structure.  It is provided as a
+mechanism for applications to know the size of the semaphore (which is dependent
+on the architecture and configuration file settings) without breaking the strict
+data hiding policy by exposing the real semaphore internals.  This
+StaticSemaphore_t variable is passed into the xSemaphoreCreateCountingStatic()
+function calls within this function.  NOTE: In most usage scenarios now it is
+faster and more memory efficient to use a direct to task notification instead of
+a counting semaphore.  http://www.freertos.org/RTOS-task-notifications.html */
+StaticSemaphore_t xSemaphoreBuffer;
+
 void SPIClass::begin()
 {
   uint8_t sreg = SREG;
@@ -58,6 +69,26 @@ void SPIClass::begin()
     // http://code.google.com/p/arduino/issues/detail?id=888
     pinMode(SCK, OUTPUT);
     pinMode(MOSI, OUTPUT);
+
+	// Semaphores are useful to stop a Task proceeding, where it should be paused to wait,
+	// because it is sharing a resource, such as the Serial port.
+	// Semaphores should only be used whilst the scheduler is running, but we can set it up here.
+	if ( xSerialSemaphoreSpi == NULL )  // Check to confirm that the Serial Semaphore has not already been created.
+	{
+		/* Create the semaphore.  xSemaphoreCreateRecursiveMutexStatic() has one
+		more parameter than the usual xSemaphoreCreateRecursiveMutex() function.
+		The parameter is a pointer to the pre-allocated StaticSemaphore_t structure,
+		which will hold information on the semaphore in an anonymous way.  If the
+		pointer is passed as NULL then the structure will be allocated dynamically,
+		just as	when xSemaphoreCreateRecursiveMutex() is called. */
+		xSerialSemaphoreSpi = xSemaphoreCreateRecursiveMutexStatic( &xSemaphoreBuffer );
+
+		/* The semaphore handle should equal the static semaphore structure passed
+		into the xSemaphoreCreateBinaryStatic() function. */
+		configASSERT( xSerialSemaphoreSpi == ( SemaphoreHandle_t ) &xSemaphoreBuffer );
+	}
+	else
+		asm ("BREAK"); 
   }
   initialized++; // reference count
   SREG = sreg;
