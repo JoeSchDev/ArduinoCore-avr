@@ -13,6 +13,8 @@
 
 #include "SPI.h"
 
+SemaphoreHandle_t xSerialSemaphoreSpi;
+
 SPIClass SPI;
 
 uint8_t SPIClass::initialized = 0;
